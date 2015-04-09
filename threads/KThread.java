@@ -90,6 +90,7 @@ public class KThread {
      * @return	this thread.
      */
     public KThread setName(String name) {
+        System.out.println(name);
 	this.name = name;
 	return this;
     }
@@ -388,7 +389,7 @@ public class KThread {
 	
 	public void run() {
 	    for (int i=0; i<5; i++) {
-		System.out.println("*** thread " + which + " looped "
+		System.out.println("*** awesome thread " + which + " looped "
 				   + i + " times");
 		currentThread.yield();
 	    }
