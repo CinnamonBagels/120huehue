@@ -90,7 +90,6 @@ public class KThread {
      * @return	this thread.
      */
     public KThread setName(String name) {
-        System.out.println(name);
 	this.name = name;
 	return this;
     }
