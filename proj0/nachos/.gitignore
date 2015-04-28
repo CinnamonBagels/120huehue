@@ -1,0 +1,5 @@
+test/
+bin/
+.DS_Store
+Makefile
+

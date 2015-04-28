@@ -158,6 +158,7 @@ public class KThread {
     private void runThread() {
 	begin();
 	target.run();
+	joinSemaphore.V();
 	finish();
     }
 
@@ -276,7 +277,9 @@ public class KThread {
 	Lib.debug(dbgThread, "Joining to thread: " + toString());
 
 	Lib.assertTrue(this != currentThread);
-
+	
+	joinSemaphore.P();
+	
     }
 
     /**
@@ -401,10 +404,20 @@ public class KThread {
      * Tests whether this module is working.
      */
     public static void selfTest() {
-	Lib.debug(dbgThread, "Enter KThread.selfTest");
-	
-	new KThread(new PingTest(1)).setName("forked thread").fork();
-	new PingTest(0).run();
+		Lib.debug(dbgThread, "Enter KThread.selfTest");
+		 KThread t1 = new KThread( new Runnable () {
+		        public void run() {
+		            for (int i = 0; i < 5; i++) {
+		                System.out.println("i = " + i);
+		            }
+		        }
+		    });
+		    t1.setName("Thread 1");
+		    t1.fork();
+		    t1.join();
+		    System.out.println("Reached part of code after t1.join(). t1 should be finshed at this point.");
+		    System.out.println("t1 finished? " + (t1.status == statusFinished));
+		    Lib.assertTrue((t1.status == statusFinished), " Expected t1 to be finished.");
     }
 
     private static final char dbgThread = 't';
@@ -421,7 +434,7 @@ public class KThread {
     private static final int statusRunning = 2;
     private static final int statusBlocked = 3;
     private static final int statusFinished = 4;
-
+    
     /**
      * The status of this thread. A thread can either be new (not yet forked),
      * ready (on the ready queue but not running), running, or blocked (not
@@ -439,7 +452,7 @@ public class KThread {
     private int id = numCreated++;
     /** Number of times the KThread constructor was called. */
     private static int numCreated = 0;
-
+    private Semaphore joinSemaphore = new Semaphore(0);
     private static ThreadQueue readyQueue = null;
     private static KThread currentThread = null;
     private static KThread toBeDestroyed = null;
