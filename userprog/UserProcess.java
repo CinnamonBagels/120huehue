@@ -5,6 +5,7 @@ import nachos.threads.*;
 import nachos.userprog.*;
 
 import java.io.EOFException;
+import java.util.LinkedList;
 
 /**
  * Encapsulates the state of a user process that is not contained in its
@@ -19,13 +20,28 @@ import java.io.EOFException;
  * @see	nachos.network.NetProcess
  */
 public class UserProcess {
+	private LinkedList<ChildProcess> childProcesses;
+	
+	public class ChildProcess {
+		UserProcess process;
+		int pid;
+		int status;
+		public ChildProcess(UserProcess child, int pid) {
+			this.process = child;
+			this.pid = pid;
+		}
+	}
     /**
      * Allocate a new process.
      */
+	private static int pid_no = 0;
+	public int pid;
     public UserProcess() {
-	int numPhysPages = Machine.processor().getNumPhysPages();
-	pageTable = new TranslationEntry[numPhysPages];
-	for (int i=0; i<numPhysPages; i++)
+    	this.pid = pid_no++;
+    	childProcesses = new LinkedList<ChildProcess>();
+		int numPhysPages = Machine.processor().getNumPhysPages();
+		pageTable = new TranslationEntry[numPhysPages];
+		for (int i=0; i<numPhysPages; i++)
 	    pageTable[i] = new TranslationEntry(i,i, true,false,false,false);
     }
     
@@ -282,34 +298,77 @@ public class UserProcess {
      * @return	<tt>true</tt> if the sections were successfully loaded.
      */
     protected boolean loadSections() {
-	if (numPages > Machine.processor().getNumPhysPages()) {
-	    coff.close();
-	    Lib.debug(dbgProcess, "\tinsufficient physical memory");
-	    return false;
-	}
-
-	// load sections
-	for (int s=0; s<coff.getNumSections(); s++) {
-	    CoffSection section = coff.getSection(s);
-	    
-	    Lib.debug(dbgProcess, "\tinitializing " + section.getName()
-		      + " section (" + section.getLength() + " pages)");
-
-	    for (int i=0; i<section.getLength(); i++) {
-		int vpn = section.getFirstVPN()+i;
-
-		// for now, just assume virtual addresses=physical addresses
-		section.loadPage(i, vpn);
-	    }
-	}
+		if (numPages > Machine.processor().getNumPhysPages()) {
+		    coff.close();
+		    Lib.debug(dbgProcess, "\tinsufficient physical memory");
+		    return false;
+		}
+		
+		/*
+		 * for loop to allocate pages. create a new translation entry for each allocated
+		 */
+		int page = -1;
+		int ppn;
+		
+		for(int i = 0; i < this.numPages; i++) {
+			page = UserKernel.allocatePage();
+			if(page < 0) {
+				//debug error
+				
+				/*
+				 * deallocate all pages that were previously allocated 
+				 */
+				for(int j = 0; j < i; j++) {
+					if(this.pageTable[j].valid) {
+						UserKernel.deallocatePage(pageTable[j].ppn);
+						pageTable[j].valid = false;
+					}
+					
+					//on error close coff??
+					coff.close();
+					return false;
+				}
+			}
+			
+			//vpn, ppn, valid, readyonly, used, dirty
+			pageTable[i] = new TranslationEntry(i, page, true, false, false, false);
+		}
+		// load sections
+		for (int s=0; s<coff.getNumSections(); s++) {
+		    CoffSection section = coff.getSection(s);
+		    
+		    Lib.debug(dbgProcess, "\tinitializing " + section.getName()
+			      + " section (" + section.getLength() + " pages)");
 	
-	return true;
+		    for (int i=0; i<section.getLength(); i++) {
+				int vpn = section.getFirstVPN()+i;
+				ppn = this.pageTable[vpn].ppn;
+				
+				
+				// for now, just assume virtual addresses=physical addresses
+				//changed vpn to pppn
+				section.loadPage(i, ppn);
+				
+				if(section.isReadOnly()) pageTable[vpn].readOnly = true;
+		    }
+		}
+		
+		
+		return true;
     }
 
     /**
      * Release any resources allocated by <tt>loadSections()</tt>.
      */
     protected void unloadSections() {
+    	for(int i = 0; i < pageTable.length; i++) {
+    		if(pageTable[i].valid) {
+    			//deallocate any pages. deallocatePages(pageTable[i].ppn);
+    			//pageTable[i].valid = false;
+    		}
+    	}
+//    	coff.close();
+//    	pageTable = null;
     }    
 
     /**
@@ -364,7 +423,8 @@ public class UserProcess {
      * <i>syscall</i> argument identifies which syscall the user executed:
      *
      * <table>
-     * <tr><td>syscall#</td><td>syscall prototype</td></tr>
+     * <tr><td>syscall#</td><td>sysc
+     * all prototype</td></tr>
      * <tr><td>0</td><td><tt>void halt();</tt></td></tr>
      * <tr><td>1</td><td><tt>void exit(int status);</tt></td></tr>
      * <tr><td>2</td><td><tt>int  exec(char *name, int argc, char **argv);
@@ -387,10 +447,39 @@ public class UserProcess {
      * @param	a3	the fourth syscall argument.
      * @return	the value to be returned to the user.
      */
+    
+//    syscallHalt = 0,
+//syscallExit = 1,
+//syscallExec = 2,
+//syscallJoin = 3,
+//syscallCreate = 4,
+//syscallOpen = 5,
+//syscallRead = 6,
+//syscallWrite = 7,
+//syscallClose = 8,
+//syscallUnlink = 9;
     public int handleSyscall(int syscall, int a0, int a1, int a2, int a3) {
 	switch (syscall) {
 	case syscallHalt:
 	    return handleHalt();
+	case syscallExit:
+		return handleExit(a0);
+	case syscallExec:
+		return handleExec(a0, a1, a2);
+	case syscallJoin:
+		return handleJoin(a0, a1);
+	case syscallCreate:
+		return handleCreate(a0);
+	case syscallOpen:
+		return handleOpen(a0);
+	case syscallRead:
+		return handleRead(a0, a1, a2);
+	case syscallWrite:
+		return handleWrite(a0, a1, a2);
+	case syscallClose:
+		return handleClose(a0);
+	case syscallUnlink:
+		return handleUnlink(a0);
 
 
 	default:
@@ -400,7 +489,139 @@ public class UserProcess {
 	return 0;
     }
 
-    /**
+    private int handleUnlink(int a0) {
+		// TODO Auto-generated method stub
+		return 0;
+	}
+
+	private int handleClose(int a0) {
+		// TODO Auto-generated method stub
+		return 0;
+	}
+
+	private int handleWrite(int a0, int a1, int a2) {
+		// TODO Auto-generated method stub
+		return 0;
+	}
+
+	private int handleRead(int a0, int a1, int a2) {
+		// TODO Auto-generated method stub
+		return 0;
+	}
+
+	private int handleOpen(int a0) {
+		// TODO Auto-generated method stub
+		return 0;
+	}
+
+	private int handleCreate(int a0) {
+		// TODO Auto-generated method stub
+		return 0;
+	}
+
+	private int handleJoin(int pid, int status) {
+		ChildProcess child;
+		if(pid < 0) {
+			//debug
+			return -1;
+		}
+		
+		if(status < 0) {
+			//debug
+			return -1;
+		}
+		
+		for(int i = 0; i < childProcesses.size(); i++) {
+			if(childProcesses.get(i).pid == pid) {
+				child = childProcesses.get(i);
+			} else {
+				
+				//DNE
+				return -1;
+			}
+		}
+		
+		/*
+		 * should join the child here then remove the child from the linked list.
+		 */
+		
+		
+		// TODO Auto-generated method stub
+		return 0;
+	}
+
+	private int handleExec(int file, int argc, int argv) {
+		// TODO Auto-generated method stub
+		boolean error;
+		String arguments[];
+		String fileName;
+		byte[] buf = new byte[4];
+		UserProcess child;
+		
+		if(argc < 0) {
+			//debug
+			return -1;
+		}
+		
+		if(argv < 0) {
+			//debuyg
+			return -1;
+		}
+		
+		fileName = this.readVirtualMemoryString(file,  256);
+		
+		//check filename extenstion .coff?
+		if(fileName == null) {
+			//debug
+			return -1;
+		}
+		
+		arguments = new String[argc];
+		
+		for(int i = 0; i < argc; i++) {
+			if(this.readVirtualMemory(argv + (i * 4), buf) != 4) {
+				//invalid transfer
+				return -1;
+			}
+			
+			arguments[i] = this.readVirtualMemoryString(Lib.bytesToInt(buf, 0), 256);
+			if(arguments[i] == null) {
+				//debug
+				return -1;
+			}
+		}
+		child = UserProcess.newUserProcess();
+		ChildProcess cp = new ChildProcess(child, child.pid);
+		childProcesses.add(cp);
+		
+		if(!child.execute(fileName, arguments)) {
+			//debug
+			return -1;
+		}
+		
+		return child.pid;
+	}
+
+	private int handleExit(int a0) {
+		// TODO Auto-generated method stub
+		int exitStatus = a0;
+		
+		/*
+		 * Close all files here
+		 */
+		
+		unloadSections();
+		
+		/*
+		 * destroy any processes. and terminate kernel if empty, then finish thread
+		 */
+		
+		KThread.finish();
+		
+		return 0;
+	}
+
+	/**
      * Handle a user exception. Called by
      * <tt>UserKernel.exceptionHandler()</tt>. The
      * <i>cause</i> argument identifies which exception occurred; see the
